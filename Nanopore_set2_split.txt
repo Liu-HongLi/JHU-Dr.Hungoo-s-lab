@@ -1,0 +1,58 @@
+#!/bin/bash
+#SBATCH --job-name=BAM_Split
+#SBATCH --partition=shared
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=32G
+#SBATCH --time=08:00:00
+#SBATCH -A hlee308
+#SBATCH --output=split_bam_%j.log
+
+# 1. 绝对路径锁定
+POD5_EXE="/home/hliu220/anaconda3/envs/dorado_env/bin/pod5"
+SAMTOOLS_EXE="/home/hliu220/anaconda3/envs/dorado_env/bin/samtools"
+
+# 原始数据路径
+BAM_DIR="/home/hliu220/scr4-hlee308/cnorton5/old_nanopore/ONT_HG02_hg19/barcoded_bams_simplex"
+MERGED_P5="/home/hliu220/scr4-hlee308/cnorton5/old_nanopore/ONT_HG02_hg19/fives/merged.pod5"
+
+# 输出路径
+WORK_DIR="/home/hliu220/scr4-hlee308/HL_files/nanopore_set2"
+ID_DIR="${WORK_DIR}/split_ids"
+OUT_DIR="${WORK_DIR}/split_pod5s"
+
+mkdir -p $ID_DIR $OUT_DIR
+cd $WORK_DIR
+
+# 2. 开始 12 个 Barcode 的提取工作
+for i in {01..12}; do
+    echo "-------------------------------------------"
+    echo ">>> [$(date)] 正在处理 Barcode $i ..."
+    
+    # 构造具体的文件名
+    CURRENT_BAM="${BAM_DIR}/EXP-NBD104_barcode${i}.sorted.bam"
+    CURRENT_IDS="${ID_DIR}/bc${i}_ids.txt"
+    CURRENT_OUT="${OUT_DIR}/barcode${i}.pod5"
+
+    if [ -f "$CURRENT_BAM" ]; then
+        # 第一步：从 BAM 中提取第一列（Read ID）
+        echo ">>> 正在从 BAM 提取 ID 列表..."
+        $SAMTOOLS_EXE view $CURRENT_BAM | awk '{print $1}' | sort | uniq > $CURRENT_IDS
+        
+        # 检查 ID 数量
+        COUNT=$(wc -l < $CURRENT_IDS)
+        echo ">>> 成功提取到 $COUNT 条唯一 Read ID。"
+
+        if [ "$COUNT" -gt 0 ]; then
+            # 第二步：根据 ID 列表过滤 POD5
+            echo ">>> 正在生成拆分后的 POD5 文件..."
+            $POD5_EXE filter $MERGED_P5 --output $CURRENT_OUT --ids $CURRENT_IDS --missing-ok
+        else
+            echo ">>> 警告：提取出的 ID 数量为 0，跳过此样本。"
+        fi
+    else
+        echo ">>> 错误：找不到文件 $CURRENT_BAM"
+    fi
+done
+
+echo "-------------------------------------------"
+echo ">>> [$(date)] 全部 12 个 Barcode 处理尝试完成！"
